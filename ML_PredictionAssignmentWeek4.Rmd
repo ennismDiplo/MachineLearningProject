@@ -1,0 +1,154 @@
+---
+title: 'Peer-graded Assignment: Prediction Project'
+author: "Michael Ennis"
+date: "July 3, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Background and Introduction
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks.
+
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, we will use data recorded from accelerometers on the belt, forearm, arm, and dumbbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+
+More information is available from the website http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+The goal of this project is to predict the manner in which the participants did the exercise. This is the classe variable of the training set, which classifies the correct and incorrect outcomes into A, B, C, D, and E categories. This report describes how the model for the project was built, its cross validation, expected out of sample error calculation, and the choices made. The model was then used to predict 20 different test cases for this project.
+
+
+##Data Cleaning and Preparation
+
+We load the raw data in two files, training ("train_in") and testing ("validation").
+
+```{r, echo=TRUE}
+train_in <- read.csv("pml-training.csv", header=T, na.strings = c("NA", "#DIV/0!", ""))
+validation  <- read.csv("pml-testing.csv", header=T,  na.strings = c("NA", "#DIV/0!", ""))
+```
+
+##Data Partitioning
+
+We split the initial training dataset into training (60%) and testing (40%) groups; we use the pml-testing.csv as the validation data. We use cross validation within the training partition to improve the model fit, followed by an out-of-sample test.
+
+```{r, echo=TRUE}
+library(caret)
+set.seed(100)
+training_sample <- createDataPartition(y=train_in$classe, p=0.6, list=FALSE)
+training <- train_in[training_sample, ]
+testing <- train_in[-training_sample, ]
+```
+
+##Identification on Non-Zero Data
+
+To predict classe in the validation dataset, we use features that are non-zero in the validation dataset. However, looking at the validation dataset for non-zero data columns is not of major concern for finding a predictive model that fits another similar dataset well.
+
+```{r, echo=TRUE}
+all_zero_colnames <- sapply(names(validation), function(x) all(is.na(validation[,x])==TRUE))
+nznames <- names(all_zero_colnames)[all_zero_colnames==FALSE]
+nznames <- nznames[-(1:7)]
+nznames <- nznames[1:(length(nznames)-1)]
+nznames
+```
+
+The models will be fit using the data columns above:
+
+##Model building
+
+We use three different model algorithms and determine which gives the best out-of-sample accuracy. The three algorithms are:
+
+    Decision trees with CART (rpart)
+    Stochastic gradient boosting trees (gbm)
+    Random forest decision trees (rf)
+
+The code to fit the three models is shown below:
+```{r, echo=TRUE}
+fitControl <- trainControl(method='cv', number = 3)
+
+model_cart <- train(
+  classe ~ ., 
+  data=training[, c('classe', nznames)],
+  trControl=fitControl,
+  method='rpart'
+)
+save(model_cart, file='./ModelFitCART.RData')
+model_gbm <- train(
+  classe ~ ., 
+  data=training[, c('classe', nznames)],
+  trControl=fitControl,
+  method='gbm'
+)
+save(model_gbm, file='./ModelFitGBM.RData')
+model_rf <- train(
+  classe ~ ., 
+  data=training[, c('classe', nznames)],
+  trControl=fitControl,
+  method='rf',
+  ntree=100
+)
+save(model_rf, file='./ModelFitRF.RData')
+```
+
+##Cross validation
+
+Cross validation is done for each model with K = 3. The fitControl object is defined below (as well as above):
+
+```{r, echo=TRUE}
+fitControl <- trainControl(method='cv', number = 3)
+
+#Accuracy of Model/Out of Sample Error
+
+predCART <- predict(model_cart, newdata=testing)
+cmCART <- confusionMatrix(predCART, testing$classe)
+predGBM <- predict(model_gbm, newdata=testing)
+cmGBM <- confusionMatrix(predGBM, testing$classe)
+predRF <- predict(model_rf, newdata=testing)
+cmRF <- confusionMatrix(predRF, testing$classe)
+AccuracyResults <- data.frame(
+  Model = c('CART', 'GBM', 'RF'),
+  Accuracy = rbind(cmCART$overall[1], cmGBM$overall[1], cmRF$overall[1])
+)
+print(AccuracyResults)
+```
+
+From the above results, both gradient boosting and random forests do a better job than the CART model. Random forests is the most accurate, with an out of sample error of 1 - 0.9927 = 00073. The confusion matrix for the random forest model is below.
+
+```{r, echo=TRUE}
+    cmRF
+```
+
+Given the accuracy of the random forest model, we do not need to create a new predictive model by combining the three models.  We use the random forest model to make predictions with the validation dataset (from the file "pml-testing.csv").
+
+This final model includes the following 5 features as the most important for predictions in the final exercise. 
+
+######FeatureName Importance
+
+*  roll_belt  100.00000
+
+*  pitch_belt   59.04099
+
+*  yaw_belt   57.80767
+
+* total_accel_belt   44.25850
+
+*  gyros_belt_x   42.48942
+
+
+##Prediction
+
+We use the validation data in "pml-testing.csv" to predict the outcome for each of the 20 observations.
+
+```{r, echo=TRUE}
+predictionTesting <- predict(model_rf, newdata=validation)
+predictionTesting
+```
+
+
+##Conclusion
+
+Based on the data available, we can fit a sound model (random forrest in our case) with a great degree of accuracy in predicting observations from a different dataset. The random forest model, with cross-validation, provides a reasonably accurate model for making final predictions about the validation dataset.
+
+
+
